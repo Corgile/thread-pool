@@ -1,15 +1,14 @@
 #include <iostream>
 #include <thread>
-#include <string>
 
-void print_msg(const std::string &msg) {
-  std::cout << msg << "\n";
+void foo(int &i) {
+  i += 1;
 }
 
 int main() {
-  std::thread t1(print_msg, "hello ");
-  /// detach: t1在后台运行, main不等待t1 return.
-  /// 是main结束, detach()的栈帧也会被收回
-  t1.detach();
+  int refer = 1;
+  std::thread t1(foo, std::ref(refer));
+  t1.join();
+  std::cout << refer << std::endl;
   return 0;
 }
