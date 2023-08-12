@@ -1,71 +1,105 @@
 #include <iostream>
 #include <thread>
-#include <mutex>
-#include <condition_variable>
+#include <vector>
 #include <queue>
 #include <functional>
+#include <mutex>
+#include <future>
+#include <string>
 
-class thread_pool {
+struct Result {
+  std::string str;
+  int value{};
+
+  void print() const {
+    std::cout << "Result={name: " << str << ", id: " << value << "}\n";
+  }
+};
+
+class ThreadPool {
 public:
-  explicit thread_pool(const int &pool_size) : m_stopped(false) {
-    this->m_threads.reserve(pool_size);
-    for (int i = 0; i < pool_size; ++i) {
-      this->m_threads.emplace_back([this]() {
+  explicit ThreadPool(int32_t num_threads) : m_stopped(false), m_capacity(num_threads) {
+    for (size_t i = 0; i < m_capacity; ++i) {
+      m_threads.emplace_back([this] {
         while (true) {
-          std::unique_lock<std::mutex> u_lock(this->m_mtx);
-          m_condition.wait(u_lock, [this]() {
-            return this->m_stopped || (!this->m_tasks.empty());
-          });
-          if (m_stopped && m_tasks.empty()) return;// in lambda
-          auto task = this->m_tasks.front();
-          this->m_tasks.pop();
-          u_lock.unlock();
-          task();
+          std::function < std::future<Result>() > task;
+          {
+            std::unique_lock<std::mutex> lock(m_mutex);
+            condition.wait(lock, [this] { return m_stopped || !m_tasks.empty(); });
+            if (m_stopped && m_tasks.empty()) return;
+            task = std::move(m_tasks.front());
+            m_tasks.pop();
+          }
+          std::future<Result> future = task();
+          Result result = future.get();
+          std::lock_guard<std::mutex> lock(m_result_mutex);
+          m_results.push_back(result);
         }
       });
     }
   }
 
-  ~thread_pool() {
-    {
-      std::unique_lock<std::mutex> lock(m_mtx);
-      m_stopped = true;
-    }
-    m_condition.notify_all();
-    for (auto &item: m_threads) {
-      item.join();
+  ~ThreadPool() {
+    std::unique_lock<std::mutex> lock(m_mutex);
+    m_stopped = true;
+    lock.unlock();
+    condition.notify_all();
+    for (auto &thread: m_threads) {
+      if (thread.joinable())thread.join();
     }
   }
 
-  template<class Func, typename... Param>
-  bool add_task(Func &&func, Param &&...param) {
-    bool succeed{false};
-    std::function<void()> task = std::bind(std::forward<Func>(func), std::forward<Param>(param)...);
+  template<class Func, class... Args>
+  std::future<Result> enqueue(Func &&func, Args &&... args) {
+    auto task = [&]() -> std::future<Result> {
+      std::packaged_task < Result() > packagedTask([&] { return func(args...); });
+      std::future<Result> future = packagedTask.get_future();
+      packagedTask();
+      return future;
+    };
+    std::future<Result> future = task();
     {
-      std::unique_lock<std::mutex> u_lock(this->m_mtx);
-      succeed = (bool) this->m_tasks.emplace(std::move(task));
+      std::unique_lock<std::mutex> lock(m_mutex);
+      m_tasks.emplace(std::move(task));
     }
-    this->m_condition.notify_one();
-    return succeed;
+    condition.notify_one();
+    return future;
   }
 
 private:
   std::vector<std::thread> m_threads;
-  std::queue<std::function<void()>> m_tasks;
-  std::mutex m_mtx;
-  std::condition_variable m_condition;
+  std::queue<std::function<std::future<Result>()>> m_tasks;
+  std::condition_variable condition;
+  std::mutex m_mutex;
   bool m_stopped;
+  int32_t m_capacity;
+
+  /// 事实上有feature就能拿到返回结果了，但却是阻塞的.
+  /// 这里将结果存vector时满足异步获取结果的需求
+  std::vector<Result> m_results;
+  std::mutex m_result_mutex;
 };
 
+Result MyTask(const std::string &message, int id) {
+  std::cout << __TIME__ << " Thread[" << id << "] starting...";
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  std::cout << __TIME__ << " Execution done.\n";
+  return {"Result from thread " + std::to_string(id) + ": " + message, id * 2};
+}
+
 int main() {
-  /// 多线程访问get_instance可能造成instance被实例化多次
-  thread_pool pool(5);
-  for (int i = 0; i < 5; ++i) {
-    std::ignore = pool.add_task([i]() {
-      std::cout << __TIMESTAMP__ << "  Task [" << i + 1 << "] starting..." << std::endl;
-      std::this_thread::sleep_for(std::chrono::seconds(1));
-      std::cout << __TIMESTAMP__ << "  Task [" << i + 1 << "] done" << std::endl;
-    });
+  ThreadPool pool(4);
+
+  std::vector<std::future<Result>> futures;
+
+  for (int i = 0; i < 4; ++i) {
+    futures.push_back(pool.enqueue(MyTask, "Hello", i));
   }
+
+  for (auto &future: futures) {
+    Result result = future.get();
+    result.print();
+  }
+
   return 0;
 }
