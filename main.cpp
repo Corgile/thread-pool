@@ -66,6 +66,11 @@ public:
     return future;
   }
 
+  std::vector<Result> get_results() {
+    std::lock_guard<std::mutex> lock(m_result_mutex);
+    return m_results;
+  }
+
 private:
   std::vector<std::thread> m_threads;
   std::queue<std::function<std::future<Result>()>> m_tasks;
@@ -99,6 +104,11 @@ int main() {
   for (auto &future: futures) {
     Result result = future.get();
     result.print();
+  }
+
+  auto results{pool.get_results()};
+  for (const auto &item: results) {
+    item.print();
   }
 
   return 0;
