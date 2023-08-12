@@ -1,25 +1,29 @@
 #include <iostream>
 #include <thread>
 #include <memory>
+#include <mutex>
 
-class some_class {
-private:
-  friend void thread_foo();
+int a = 0;
+std::mutex mtx;
 
-  void foo() {
-    std::cout << "hello\n";
+void add_up() {
+  for (int i = 0; i < 1000; ++i) {
+    /**
+     * 线程安全：多线程环境下不论程序运行多少次，其结果都会和单线程模式下的结果保持一致
+     */
+    mtx.lock();
+    a += 1;
+    mtx.unlock();
   }
-};
-
-
-void thread_foo() {
-  std::shared_ptr<some_class> a = std::make_shared<some_class>();
-  /// 线程访问私有成员: friend
-  std::thread t(&some_class::foo, a);
-  t.join();
 }
 
+
 int main() {
-  thread_foo();
+
+  std::thread t1(add_up);
+  std::thread t2(add_up);
+  t1.join();
+  t2.join();
+  std::cout << a << std::endl;
   return 0;
 }
