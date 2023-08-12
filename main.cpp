@@ -2,7 +2,6 @@
 #include <thread>
 #include <vector>
 #include <queue>
-#include <functional>
 #include <mutex>
 #include <future>
 #include <string>
@@ -22,7 +21,7 @@ public:
     for (size_t i = 0; i < m_capacity; ++i) {
       m_threads.emplace_back([this] {
         while (true) {
-          std::function < std::future<Result>() > task;
+          std::function<std::future<Result>()> task;
           {
             std::unique_lock<std::mutex> lock(m_mutex);
             condition.wait(lock, [this] { return m_stopped || !m_tasks.empty(); });
@@ -52,7 +51,7 @@ public:
   template<class Func, class... Args>
   std::future<Result> enqueue(Func &&func, Args &&... args) {
     auto task = [&]() -> std::future<Result> {
-      std::packaged_task < Result() > packagedTask([&] { return func(std::forward<Args>(args)...); });
+      std::packaged_task<Result()> packagedTask([&] { return func(std::forward<Args>(args)...); });
       std::future<Result> future = packagedTask.get_future();
       packagedTask();
       return future;
@@ -86,26 +85,28 @@ private:
 };
 
 Result MyTask(const std::string &message, int id) {
-  std::cout << __TIME__ << " Thread[" << id << "] starting...";
+  std::cout << "\033[" << id << ";0HThread[" << id << "] starting...";
   std::this_thread::sleep_for(std::chrono::seconds(2));
-  std::cout << __TIME__ << " Execution done.\n";
+  std::cout << "\033[" << id << ";25HExecution done.\n";
   return {message, id << 1};
 }
 
 int main() {
+  system("chcp 65001 > nul");
   ThreadPool pool(4);
 
   std::vector<std::future<Result>> futures;
 
-  for (int i = 0; i < 4; ++i) {
-    futures.push_back(pool.enqueue(MyTask, "Hello", i));
+  futures.reserve(4);
+  for (int i = 1; i <= 4; ++i) {
+    futures.emplace_back(pool.enqueue(MyTask, "Hello", i));
   }
 
+  std::this_thread::sleep_for(std::chrono::seconds(10));
   for (auto &future: futures) {
     Result result = future.get();
     result.print();
   }
-  std::this_thread::sleep_for(std::chrono::seconds(10));
   auto results{pool.get_results()};
   for (const auto &item: results) {
     item.print();
