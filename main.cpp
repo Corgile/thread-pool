@@ -8,7 +8,8 @@ void print_msg(const std::string &msg) {
 
 int main() {
   std::thread t1(print_msg, "hello ");
-  /// join: 告诉main是否要等待t1 return
-  t1.join();
+  /// detach: t1在后台运行, main不等待t1 return.
+  /// 是main结束, detach()的栈帧也会被收回
+  t1.detach();
   return 0;
 }
