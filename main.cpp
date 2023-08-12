@@ -52,7 +52,7 @@ public:
   template<class Func, class... Args>
   std::future<Result> enqueue(Func &&func, Args &&... args) {
     auto task = [&]() -> std::future<Result> {
-      std::packaged_task < Result() > packagedTask([&] { return func(args...); });
+      std::packaged_task < Result() > packagedTask([&] { return func(std::forward<Args>(args)...); });
       std::future<Result> future = packagedTask.get_future();
       packagedTask();
       return future;
@@ -89,7 +89,7 @@ Result MyTask(const std::string &message, int id) {
   std::cout << __TIME__ << " Thread[" << id << "] starting...";
   std::this_thread::sleep_for(std::chrono::seconds(2));
   std::cout << __TIME__ << " Execution done.\n";
-  return {"Result from thread " + std::to_string(id) + ": " + message, id * 2};
+  return {message, id << 1};
 }
 
 int main() {
@@ -105,7 +105,7 @@ int main() {
     Result result = future.get();
     result.print();
   }
-
+  std::this_thread::sleep_for(std::chrono::seconds(10));
   auto results{pool.get_results()};
   for (const auto &item: results) {
     item.print();
