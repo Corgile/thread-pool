@@ -2,35 +2,51 @@
 #include <thread>
 #include <mutex>
 
-int shared_data = 0;
-std::timed_mutex mtx;
-#define max_wait 6050
-#define job_cost 2
-#define round 2
+/// 单例logger, 并不严谨
+class logger;
+static logger *m_instance = nullptr;
+static std::once_flag once;
+class logger {
+private:
+  logger() = default;
 
-void add_up() {
-  /// try_lock_for: 超过设定时间获取不到锁直接返回
-  std::unique_lock<std::timed_mutex> u_lock(mtx, std::defer_lock);
-  if (u_lock.try_lock_for(std::chrono::microseconds(max_wait))) {
-    for (int i = 0; i < round; ++i) {
-      /// 每操作一次 shared_data 需要花费2秒，总共执行2次, 因此每个线程执行完成需要4秒。
-      /// 但是每个线程的 u_lock 只被允许等待 timed_mutex 互斥锁不超过3秒，
-      /// 所以当前线程在第二次对 shared_data 操作完成前，另一个线程的u_lock已经等待超时并返回
-      /// 因此这里的t1 t2两个线程一定只有一个线程能获得锁并完成2次
-      /// 对shared_data的操作，所以最终shared_data=3, 两次打印current_thread也是相同的.
-      std::this_thread::sleep_for(std::chrono::seconds(job_cost));
-      std::cout << "Thread [" << std::this_thread::get_id() << "] is operating shared_data" << std::endl;
-      shared_data++;
-    }
+public:
+
+  /// 禁用拷贝构造
+  logger(const logger &other) = delete;
+
+  /// 禁用拷贝构造(重载)
+  logger &operator=(const logger &other) = delete;
+
+  /// 饿汉单例: 提前声明, 需要时实例化
+  static logger &instance() {
+    std::call_once(once, []() {
+      if (!m_instance) m_instance = new logger();
+    });
+    return *m_instance;
   }
+
+  void info(const std::string &msg) {
+    std::cout << this << " " << __TIMESTAMP__ << " " << msg << std::endl;
+  }
+};
+
+void print_msg(const std::string &msg) {
+  logger::instance().info(msg);
 }
 
 int main() {
-
-  std::thread t1(add_up);
-  std::thread t2(add_up);
+  /// 多线程访问get_instance可能造成instance被实例化多次
+  ///
+  std::thread t1(print_msg, "error 1\n");
+  std::thread t2(print_msg, "error 2\n");
+  std::thread t3(print_msg, "error 3\n");
+  std::thread t4(print_msg, "error 4\n");
+  std::thread t5(print_msg, "error 5\n");
   t1.join();
   t2.join();
-  std::cout << shared_data << std::endl;
+  t3.join();
+  t4.join();
+  t5.join();
   return 0;
 }
