@@ -44,7 +44,7 @@ public:
 		lock.unlock();
 		condition.notify_all();
 		for (auto& thread: m_threads) {
-			if (thread.joinable())thread.join();
+			if (thread.joinable()) thread.join();
 		}
 	}
 
